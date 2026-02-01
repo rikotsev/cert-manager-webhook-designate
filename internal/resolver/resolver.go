@@ -33,27 +33,22 @@ func (d *designateDnsResolver) Name() string {
 }
 
 func (d *designateDnsResolver) Present(ch *v1alpha1.ChallengeRequest) error {
-	designateClient, err := d.createDesignateClient(ch)
+	designateClient, cfg, err := d.createDesignateClient(ch)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrFailedDesignateClientInitialization, err)
 	}
 
-	page, err := zones.List(designateClient, zones.ListOpts{
-		Name: ch.ResolvedFQDN,
-	}).AllPages(context.TODO())
-	if err != nil {
-		return err
+	var zoneId string
+
+	switch cfg.Strategy.Kind {
+	case StrategyKindSOA:
+		zoneId, err = d.soa(ch, err, designateClient)
+		if err != nil {
+			return err
+		}
 	}
 
-	allZones, err := zones.ExtractZones(page)
-	if err != nil {
-		return err
-	}
-	if len(allZones) == 0 {
-		return ErrNoZones
-	}
-
-	result := recordsets.Create(context.TODO(), designateClient, allZones[0].ID, recordsets.CreateOpts{
+	result := recordsets.Create(context.TODO(), designateClient, zoneId, recordsets.CreateOpts{
 		Name:    ch.ResolvedFQDN,
 		Type:    "TXT",
 		Records: []string{ch.Key},
@@ -65,29 +60,49 @@ func (d *designateDnsResolver) Present(ch *v1alpha1.ChallengeRequest) error {
 	return nil
 }
 
-func (d *designateDnsResolver) createDesignateClient(ch *v1alpha1.ChallengeRequest) (*gophercloud.ServiceClient, error) {
+func (d *designateDnsResolver) soa(ch *v1alpha1.ChallengeRequest, err error, designateClient *gophercloud.ServiceClient) (string, error) {
+	page, err := zones.List(designateClient, zones.ListOpts{
+		Name: ch.ResolvedFQDN,
+	}).AllPages(context.TODO())
+	if err != nil {
+		return "", err
+	}
+
+	allZones, err := zones.ExtractZones(page)
+	if err != nil {
+		return "", err
+	}
+	if len(allZones) == 0 {
+		return "", ErrNoZones
+	}
+
+	zoneId := allZones[0].ID
+	return zoneId, nil
+}
+
+func (d *designateDnsResolver) createDesignateClient(ch *v1alpha1.ChallengeRequest) (*gophercloud.ServiceClient, *ChallengeConfig, error) {
 	ctx := context.TODO()
 
 	cfg, err := ParseConfig(ch.Config)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	authCfg, err := d.configProvider.Get(ctx, cfg.SecretNamespace, cfg.SecretName)
 	if err != nil {
-		return nil, err
+		return nil, cfg, err
 	}
 
 	client, err := openstack.AuthenticatedClient(ctx, authCfg.authOpts)
 	if err != nil {
-		return nil, err
+		return nil, cfg, err
 	}
 
 	designateClient, err := openstack.NewDNSV2(client, authCfg.endpointOpts)
 	if err != nil {
-		return nil, err
+		return nil, cfg, err
 	}
-	return designateClient, nil
+	return designateClient, cfg, nil
 }
 
 func (d *designateDnsResolver) CleanUp(ch *v1alpha1.ChallengeRequest) error {
