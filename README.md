@@ -10,4 +10,3 @@ Loosely inspired by [this](https://github.com/syseleven/designate-certmanager-we
 ---
 
 - [go](https://go.dev/) >= 1.25.1 (if you want to contribute)
-- 

@@ -16,12 +16,15 @@ import (
 
 func TestDesignateDnsResolver_Present(t *testing.T) {
 	tcs := []struct {
-		name               string
-		zones              []mockresolver.MockZone
-		secret             *corev1.Secret
-		challengeRequest   *v1alpha1.ChallengeRequest
-		expectedError      error
-		expectedZoneUpdate *mockresolver.ZoneUpdate
+		name                    string
+		zones                   []mockresolver.MockZone
+		secret                  *corev1.Secret
+		challengeRequest        *v1alpha1.ChallengeRequest
+		expectedError           error
+		expectedZoneUpdate      *mockresolver.ZoneUpdate
+		mockErrorListingZones   bool
+		mockErrorAuthenticating bool
+		generalError            bool
 	}{
 		{
 			name: "present challenge with SOA strategy - happy path",
@@ -146,12 +149,92 @@ func TestDesignateDnsResolver_Present(t *testing.T) {
 			expectedError:      ErrNoZones,
 			expectedZoneUpdate: nil,
 		},
+		{
+			name: "present challenge - authentication error",
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "foo",
+					Namespace: "bar",
+				},
+				Data: map[string][]byte{
+					"tenantName": []byte("testTenant"),
+					"tenantId":   []byte("testTenantId"),
+					"domainName": []byte("testDomainName"),
+					"domainId":   []byte("testDomainId"),
+					"username":   []byte("john-doe"),
+					"password":   []byte("secretpass"),
+					"region":     []byte("RegionOne"),
+				},
+			},
+			challengeRequest: &v1alpha1.ChallengeRequest{
+				UID:                     "",
+				Action:                  "",
+				Type:                    "",
+				DNSName:                 "",
+				Key:                     "challenge",
+				ResourceNamespace:       "",
+				ResolvedFQDN:            "test.example.com",
+				ResolvedZone:            "",
+				AllowAmbientCredentials: false,
+				Config: &apiextensionsv1.JSON{Raw: []byte(`{
+					"secretName": "foo",
+					"secretNamespace": "bar",
+					"strategy": {
+						"kind": "SOA"
+					}
+				}`)},
+			},
+			mockErrorAuthenticating: true,
+			expectedError:           ErrFailedDesignateClientInitialization,
+			expectedZoneUpdate:      nil,
+		},
+		{
+			name:  "present challenge - error listing zones",
+			zones: []mockresolver.MockZone{},
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "foo",
+					Namespace: "bar",
+				},
+				Data: map[string][]byte{
+					"tenantName": []byte("testTenant"),
+					"tenantId":   []byte("testTenantId"),
+					"domainName": []byte("testDomainName"),
+					"domainId":   []byte("testDomainId"),
+					"username":   []byte("john-doe"),
+					"password":   []byte("secretpass"),
+					"region":     []byte("RegionOne"),
+				},
+			},
+			challengeRequest: &v1alpha1.ChallengeRequest{
+				UID:                     "",
+				Action:                  "",
+				Type:                    "",
+				DNSName:                 "",
+				Key:                     "challenge",
+				ResourceNamespace:       "",
+				ResolvedFQDN:            "test.example.com",
+				ResolvedZone:            "",
+				AllowAmbientCredentials: false,
+				Config: &apiextensionsv1.JSON{Raw: []byte(`{
+					"secretName": "foo",
+					"secretNamespace": "bar",
+					"strategy": {
+						"kind": "SOA"
+					}
+				}`)},
+			},
+			mockErrorListingZones: true,
+			generalError:          true,
+		},
 	}
 
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
 			mockApi := mockresolver.CreateMockOpenstackApi(t)
 			mockApi.Zones = tc.zones
+			mockApi.ErrorListingZones = tc.mockErrorListingZones
+			mockApi.ErrorAuthenticating = tc.mockErrorAuthenticating
 			openstackMock := httptest.NewServer(mockApi)
 			defer openstackMock.Close()
 
@@ -171,9 +254,16 @@ func TestDesignateDnsResolver_Present(t *testing.T) {
 
 			err := resolver.Present(tc.challengeRequest)
 
-			if !errors.Is(err, tc.expectedError) {
-				t.Errorf("expected error %v, got %v", tc.expectedError, err)
-				return
+			if tc.generalError {
+				if err == nil {
+					t.Errorf("expected an error, got none")
+					return
+				}
+			} else {
+				if !errors.Is(err, tc.expectedError) {
+					t.Errorf("expected error %v, got %v", tc.expectedError, err)
+					return
+				}
 			}
 
 			if tc.expectedZoneUpdate != nil {

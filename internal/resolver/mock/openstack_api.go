@@ -23,9 +23,11 @@ type ZoneUpdate struct {
 }
 
 type OpenstackApiMock struct {
-	t       *testing.T
-	Zones   []MockZone
-	Updates []ZoneUpdate
+	t                   *testing.T
+	Zones               []MockZone
+	Updates             []ZoneUpdate
+	ErrorListingZones   bool
+	ErrorAuthenticating bool
 }
 
 func (o *OpenstackApiMock) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -66,6 +68,12 @@ func (o *OpenstackApiMock) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// authenticate for version
 	if r.Method == http.MethodPost && r.URL.Path == "/tokens" {
+		if o.ErrorAuthenticating {
+			slog.Info("simulating authentication error")
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
 		slog.Info("matched /tokens mock response")
 		w.WriteHeader(http.StatusOK)
 		jsonResponse := `{
@@ -98,6 +106,12 @@ func (o *OpenstackApiMock) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// list zones
 	if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/dns/v2/zones") {
+		if o.ErrorListingZones {
+			slog.Info("simulating list zones error")
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
 		slog.Info("matched /dns/v2/zones mock response")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
