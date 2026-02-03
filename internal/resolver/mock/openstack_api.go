@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -17,15 +18,37 @@ type MockZone struct {
 	Name string
 }
 
+type MockRecordSet struct {
+	ID      string
+	ZoneID  string
+	Name    string
+	Type    string
+	Records []string
+}
+
 type ZoneUpdate struct {
 	ZoneID string
 	Opts   recordsets.CreateOpts
 }
 
+type RecordSetDelete struct {
+	ZoneID      string
+	RecordSetID string
+}
+
+type RecordSetPut struct {
+	ZoneID      string
+	RecordSetID string
+	Opts        recordsets.UpdateOpts
+}
+
 type OpenstackApiMock struct {
 	t                   *testing.T
 	Zones               []MockZone
+	RecordSets          []MockRecordSet
 	Updates             []ZoneUpdate
+	RecordSetDeletes    []RecordSetDelete
+	RecordSetPuts       []RecordSetPut
 	ErrorListingZones   bool
 	ErrorAuthenticating bool
 }
@@ -105,7 +128,7 @@ func (o *OpenstackApiMock) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// list zones
-	if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/dns/v2/zones") {
+	if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/dns/v2/zones") && !strings.Contains(r.URL.Path, "/recordsets") {
 		if o.ErrorListingZones {
 			slog.Info("simulating list zones error")
 			w.WriteHeader(http.StatusInternalServerError)
@@ -180,6 +203,100 @@ func (o *OpenstackApiMock) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			o.t.Errorf("failed to write recordset response: %v", err)
 		}
 		return
+	}
+
+	if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/dns/v2/zones") && strings.Contains(r.URL.Path, "/recordsets") {
+		slog.Info("matched get recordset mock response")
+
+		parts := strings.Split(r.URL.Path, "/")
+		if len(parts) < 5 {
+			o.t.Errorf("invalid recordset get URL, too short: %s", r.URL.Path)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		zoneID := parts[4]
+		recordSetName := r.URL.Query().Get("name")
+		recordSetType := r.URL.Query().Get("type")
+		recordSetData := r.URL.Query().Get("data")
+
+		var matchingRecordSets = make([]MockRecordSet, 0)
+
+		for idx, recordSet := range o.RecordSets {
+			if recordSet.Name == recordSetName && recordSet.Type == recordSetType &&
+				slices.Contains(recordSet.Records, recordSetData) && recordSet.ZoneID == zoneID {
+				matchingRecordSets = append(matchingRecordSets, o.RecordSets[idx])
+			}
+		}
+
+		slog.Info("finished matching recordsets", "count", len(matchingRecordSets))
+
+		var enrichedRecordSets []map[string]interface{}
+		for _, rs := range matchingRecordSets {
+			enrichedRecordSets = append(enrichedRecordSets, map[string]interface{}{
+				"id":      rs.ID,
+				"name":    rs.Name,
+				"type":    rs.Type,
+				"records": rs.Records,
+				"zone_id": rs.ZoneID,
+			})
+		}
+
+		resp := map[string]interface{}{
+			"recordsets": enrichedRecordSets,
+			"links":      map[string]string{"self": fmt.Sprintf("http://%s%s", r.Host, r.URL.String())},
+			"metadata":   map[string]interface{}{"total_count": len(matchingRecordSets)},
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			o.t.Error("failed to write recordsets response")
+		}
+		return
+	}
+
+	if r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/dns/v2/zones") && strings.Contains(r.URL.Path, "/recordsets") {
+		slog.Info("matched delete recordset mock")
+
+		parts := strings.Split(r.URL.Path, "/")
+		if len(parts) < 7 {
+			o.t.Errorf("invalid recordset get URL, too short: %s", r.URL.Path)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		zoneID := parts[4]
+		recordSetID := parts[6]
+
+		o.RecordSetDeletes = append(o.RecordSetDeletes, RecordSetDelete{
+			ZoneID:      zoneID,
+			RecordSetID: recordSetID,
+		})
+		w.WriteHeader(http.StatusOK)
+	}
+
+	if r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/dns/v2/zones") && strings.Contains(r.URL.Path, "/recordsets") {
+		slog.Info("matched put recordset mock")
+
+		parts := strings.Split(r.URL.Path, "/")
+		if len(parts) < 7 {
+			o.t.Errorf("invalid recordset get URL, too short: %s", r.URL.Path)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		zoneID := parts[4]
+		recordSetID := parts[6]
+
+		var opts recordsets.UpdateOpts
+		if err := json.Unmarshal(content, &opts); err != nil {
+			o.t.Errorf("failed to unmarshal recordset update: %v", err)
+		}
+
+		o.RecordSetPuts = append(o.RecordSetPuts, RecordSetPut{
+			ZoneID:      zoneID,
+			RecordSetID: recordSetID,
+			Opts:        opts,
+		})
+		w.WriteHeader(http.StatusOK)
 	}
 }
 

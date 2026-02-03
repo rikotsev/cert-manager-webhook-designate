@@ -60,7 +60,7 @@ func TestDesignateDnsResolver_Present(t *testing.T) {
 				DNSName:                 "",
 				Key:                     "challenge",
 				ResourceNamespace:       "",
-				ResolvedFQDN:            "test.example.com",
+				ResolvedFQDN:            "cool.example.com",
 				ResolvedZone:            "",
 				AllowAmbientCredentials: false,
 				Config: &apiextensionsv1.JSON{Raw: []byte(`{
@@ -73,9 +73,124 @@ func TestDesignateDnsResolver_Present(t *testing.T) {
 			},
 			expectedError: nil,
 			expectedZoneUpdate: &mockresolver.ZoneUpdate{
-				ZoneID: "67890",
+				ZoneID: "12345",
 				Opts: recordsets.CreateOpts{
-					Name:    "test.example.com",
+					Name:    "cool.example.com",
+					Type:    "TXT",
+					Records: []string{"challenge"},
+				},
+			},
+		},
+		{
+			name: "present challenge with ZoneName strategy - happy path",
+			zones: []mockresolver.MockZone{
+				{
+					ID:   "12345",
+					Name: "example.com.",
+				},
+				{
+					ID:   "67890",
+					Name: "test.example.com.",
+				},
+			},
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "foo",
+					Namespace: "bar",
+				},
+				Data: map[string][]byte{
+					"tenantName": []byte("testTenant"),
+					"tenantId":   []byte("testTenantId"),
+					"domainName": []byte("testDomainName"),
+					"domainId":   []byte("testDomainId"),
+					"username":   []byte("john-doe"),
+					"password":   []byte("secretpass"),
+					"region":     []byte("RegionOne"),
+				},
+			},
+			challengeRequest: &v1alpha1.ChallengeRequest{
+				UID:                     "",
+				Action:                  "",
+				Type:                    "",
+				DNSName:                 "",
+				Key:                     "challenge",
+				ResourceNamespace:       "",
+				ResolvedFQDN:            "cool.example.com",
+				ResolvedZone:            "",
+				AllowAmbientCredentials: false,
+				Config: &apiextensionsv1.JSON{Raw: []byte(`{
+					"secretName": "foo",
+					"secretNamespace": "bar",
+					"strategy": {
+						"kind": "ZoneName",
+						"zoneName": "example.com."
+					}
+				}`)},
+			},
+			expectedError: nil,
+			expectedZoneUpdate: &mockresolver.ZoneUpdate{
+				ZoneID: "12345",
+				Opts: recordsets.CreateOpts{
+					Name:    "cool.example.com",
+					Type:    "TXT",
+					Records: []string{"challenge"},
+				},
+			},
+		},
+		{
+			name: "present challenge with BestEffort strategy - happy path",
+			zones: []mockresolver.MockZone{
+				{
+					ID:   "12345",
+					Name: "example.com.",
+				},
+				{
+					ID:   "67890",
+					Name: "test.example.com.",
+				},
+				{
+					ID:   "12312",
+					Name: "api.test.example.com",
+				},
+			},
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "foo",
+					Namespace: "bar",
+				},
+				Data: map[string][]byte{
+					"tenantName": []byte("testTenant"),
+					"tenantId":   []byte("testTenantId"),
+					"domainName": []byte("testDomainName"),
+					"domainId":   []byte("testDomainId"),
+					"username":   []byte("john-doe"),
+					"password":   []byte("secretpass"),
+					"region":     []byte("RegionOne"),
+				},
+			},
+			challengeRequest: &v1alpha1.ChallengeRequest{
+				UID:                     "",
+				Action:                  "",
+				Type:                    "",
+				DNSName:                 "",
+				Key:                     "challenge",
+				ResourceNamespace:       "",
+				ResolvedFQDN:            "my.api.test.example.com",
+				ResolvedZone:            "example.com",
+				AllowAmbientCredentials: false,
+				Config: &apiextensionsv1.JSON{Raw: []byte(`{
+					"secretName": "foo",
+					"secretNamespace": "bar",
+					"strategy": {
+						"kind": "BestEffort"
+					}
+				}`)},
+			},
+			expectedError: nil,
+			expectedZoneUpdate: &mockresolver.ZoneUpdate{
+				ZoneID: "12312",
+				Opts: recordsets.CreateOpts{
+					Name:    "my.api.test.example.com",
 					Type:    "TXT",
 					Records: []string{"challenge"},
 				},
@@ -143,6 +258,99 @@ func TestDesignateDnsResolver_Present(t *testing.T) {
 					"secretNamespace": "bar",
 					"strategy": {
 						"kind": "SOA"
+					}
+				}`)},
+			},
+			expectedError:      ErrNoZones,
+			expectedZoneUpdate: nil,
+		},
+		{
+			name: "no zone matched the name - strategy ZoneName",
+			zones: []mockresolver.MockZone{
+				{
+					ID:   "67890",
+					Name: "example.com.",
+				},
+			},
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "foo",
+					Namespace: "bar",
+				},
+				Data: map[string][]byte{
+					"tenantName": []byte("testTenant"),
+					"tenantId":   []byte("testTenantId"),
+					"domainName": []byte("testDomainName"),
+					"domainId":   []byte("testDomainId"),
+					"username":   []byte("john-doe"),
+					"password":   []byte("secretpass"),
+					"region":     []byte("RegionOne"),
+				},
+			},
+			challengeRequest: &v1alpha1.ChallengeRequest{
+				UID:                     "",
+				Action:                  "",
+				Type:                    "",
+				DNSName:                 "",
+				Key:                     "challenge",
+				ResourceNamespace:       "",
+				ResolvedFQDN:            "test.example.com",
+				ResolvedZone:            "",
+				AllowAmbientCredentials: false,
+				Config: &apiextensionsv1.JSON{Raw: []byte(`{
+					"secretName": "foo",
+					"secretNamespace": "bar",
+					"strategy": {
+						"kind": "ZoneName",
+						"zoneName": "test.example.com."
+					}
+				}`)},
+			},
+			expectedError:      ErrNoZones,
+			expectedZoneUpdate: nil,
+		},
+		{
+			name: "no zone matched the name - strategy BestEffort",
+			zones: []mockresolver.MockZone{
+				{
+					ID:   "12345",
+					Name: "bar.com.",
+				},
+				{
+					ID:   "67890",
+					Name: "foo.com.",
+				},
+			},
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "foo",
+					Namespace: "bar",
+				},
+				Data: map[string][]byte{
+					"tenantName": []byte("testTenant"),
+					"tenantId":   []byte("testTenantId"),
+					"domainName": []byte("testDomainName"),
+					"domainId":   []byte("testDomainId"),
+					"username":   []byte("john-doe"),
+					"password":   []byte("secretpass"),
+					"region":     []byte("RegionOne"),
+				},
+			},
+			challengeRequest: &v1alpha1.ChallengeRequest{
+				UID:                     "",
+				Action:                  "",
+				Type:                    "",
+				DNSName:                 "",
+				Key:                     "challenge",
+				ResourceNamespace:       "",
+				ResolvedFQDN:            "test.example.com",
+				ResolvedZone:            "example.com",
+				AllowAmbientCredentials: false,
+				Config: &apiextensionsv1.JSON{Raw: []byte(`{
+					"secretName": "foo",
+					"secretNamespace": "bar",
+					"strategy": {
+						"kind": "BestEffort"
 					}
 				}`)},
 			},
@@ -293,6 +501,278 @@ func TestDesignateDnsResolver_Present(t *testing.T) {
 				}
 			} else if len(mockApi.Updates) != 0 {
 				t.Errorf("expected 0 updates, got %d", len(mockApi.Updates))
+			}
+		})
+	}
+}
+
+func TestDesignateDnsResolver_CleanUp(t *testing.T) {
+	tcs := []struct {
+		name                    string
+		zones                   []mockresolver.MockZone
+		recordSets              []mockresolver.MockRecordSet
+		secret                  *corev1.Secret
+		challengeRequest        *v1alpha1.ChallengeRequest
+		expectedError           error
+		expectedRecordSetDelete *mockresolver.RecordSetDelete
+		expectedRecordSetPut    *mockresolver.RecordSetPut
+	}{
+		{
+			name: "cleanup challenge with SOA strategy - delete recordset",
+			zones: []mockresolver.MockZone{
+				{
+					ID:   "12345",
+					Name: "example.com.",
+				},
+				{
+					ID:   "67890",
+					Name: "test.example.com.",
+				},
+			},
+			recordSets: []mockresolver.MockRecordSet{
+				{
+					ID:     "12345-1",
+					ZoneID: "12345",
+					Name:   "cool.example.com",
+					Type:   "TXT",
+					Records: []string{
+						"challenge",
+					},
+				},
+			},
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "foo",
+					Namespace: "bar",
+				},
+				Data: map[string][]byte{
+					"tenantName": []byte("testTenant"),
+					"tenantId":   []byte("testTenantId"),
+					"domainName": []byte("testDomainName"),
+					"domainId":   []byte("testDomainId"),
+					"username":   []byte("john-doe"),
+					"password":   []byte("secretpass"),
+					"region":     []byte("RegionOne"),
+				},
+			},
+			challengeRequest: &v1alpha1.ChallengeRequest{
+				UID:                     "",
+				Action:                  "",
+				Type:                    "",
+				DNSName:                 "",
+				Key:                     "challenge",
+				ResourceNamespace:       "",
+				ResolvedFQDN:            "cool.example.com",
+				ResolvedZone:            "",
+				AllowAmbientCredentials: false,
+				Config: &apiextensionsv1.JSON{Raw: []byte(`{
+					"secretName": "foo",
+					"secretNamespace": "bar",
+					"strategy": {
+						"kind": "SOA"
+					}
+				}`)},
+			},
+			expectedRecordSetDelete: &mockresolver.RecordSetDelete{
+				ZoneID:      "12345",
+				RecordSetID: "12345-1",
+			},
+		},
+		{
+			name: "cleanup challenge with SOA strategy - remove only challenge record",
+			zones: []mockresolver.MockZone{
+				{
+					ID:   "12345",
+					Name: "example.com.",
+				},
+				{
+					ID:   "67890",
+					Name: "test.example.com.",
+				},
+			},
+			recordSets: []mockresolver.MockRecordSet{
+				{
+					ID:     "12345-1",
+					ZoneID: "12345",
+					Name:   "cool.example.com",
+					Type:   "TXT",
+					Records: []string{
+						"challenge",
+						"another-record",
+					},
+				},
+			},
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "foo",
+					Namespace: "bar",
+				},
+				Data: map[string][]byte{
+					"tenantName": []byte("testTenant"),
+					"tenantId":   []byte("testTenantId"),
+					"domainName": []byte("testDomainName"),
+					"domainId":   []byte("testDomainId"),
+					"username":   []byte("john-doe"),
+					"password":   []byte("secretpass"),
+					"region":     []byte("RegionOne"),
+				},
+			},
+			challengeRequest: &v1alpha1.ChallengeRequest{
+				UID:                     "",
+				Action:                  "",
+				Type:                    "",
+				DNSName:                 "",
+				Key:                     "challenge",
+				ResourceNamespace:       "",
+				ResolvedFQDN:            "cool.example.com",
+				ResolvedZone:            "",
+				AllowAmbientCredentials: false,
+				Config: &apiextensionsv1.JSON{Raw: []byte(`{
+					"secretName": "foo",
+					"secretNamespace": "bar",
+					"strategy": {
+						"kind": "SOA"
+					}
+				}`)},
+			},
+			expectedRecordSetPut: &mockresolver.RecordSetPut{
+				ZoneID:      "12345",
+				RecordSetID: "12345-1",
+				Opts: recordsets.UpdateOpts{
+					Records: []string{
+						"another-record",
+					},
+				},
+			},
+		},
+		{
+			name: "cleanup challenge with SOA strategy - no recordset to found",
+			zones: []mockresolver.MockZone{
+				{
+					ID:   "12345",
+					Name: "example.com.",
+				},
+				{
+					ID:   "67890",
+					Name: "test.example.com.",
+				},
+			},
+			recordSets: []mockresolver.MockRecordSet{},
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "foo",
+					Namespace: "bar",
+				},
+				Data: map[string][]byte{
+					"tenantName": []byte("testTenant"),
+					"tenantId":   []byte("testTenantId"),
+					"domainName": []byte("testDomainName"),
+					"domainId":   []byte("testDomainId"),
+					"username":   []byte("john-doe"),
+					"password":   []byte("secretpass"),
+					"region":     []byte("RegionOne"),
+				},
+			},
+			challengeRequest: &v1alpha1.ChallengeRequest{
+				UID:                     "",
+				Action:                  "",
+				Type:                    "",
+				DNSName:                 "",
+				Key:                     "challenge",
+				ResourceNamespace:       "",
+				ResolvedFQDN:            "cool.example.com",
+				ResolvedZone:            "",
+				AllowAmbientCredentials: false,
+				Config: &apiextensionsv1.JSON{Raw: []byte(`{
+					"secretName": "foo",
+					"secretNamespace": "bar",
+					"strategy": {
+						"kind": "SOA"
+					}
+				}`)},
+			},
+			expectedError: ErrNoRecordSet,
+		},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.name, func(t *testing.T) {
+			mockApi := mockresolver.CreateMockOpenstackApi(t)
+			mockApi.Zones = tc.zones
+			mockApi.RecordSets = tc.recordSets
+
+			openstackMock := httptest.NewServer(mockApi)
+			defer openstackMock.Close()
+
+			if tc.secret != nil {
+				secretCopy := tc.secret.DeepCopy()
+				if secretCopy.Data == nil {
+					secretCopy.Data = make(map[string][]byte)
+				}
+				secretCopy.Data["identityEndpoint"] = []byte(openstackMock.URL)
+				tc.secret = secretCopy
+			}
+
+			resolver := new(designateDnsResolver)
+			resolver.configProvider = &authConfigProvider{
+				client: fake.NewClientset(tc.secret),
+			}
+
+			err := resolver.CleanUp(tc.challengeRequest)
+
+			if tc.expectedError != nil {
+				if err == nil {
+					t.Errorf("expected an error, got none")
+					return
+				} else if !errors.Is(err, tc.expectedError) {
+					t.Errorf("expected error %v, got %v", tc.expectedError, err)
+					return
+				}
+
+				return
+			}
+
+			if tc.expectedRecordSetDelete != nil {
+				if len(mockApi.RecordSetDeletes) != 1 {
+					t.Errorf("expected 1 delete, got %d", len(mockApi.RecordSetDeletes))
+					return
+				}
+
+				deleteAction := mockApi.RecordSetDeletes[0]
+				if deleteAction.ZoneID != tc.expectedRecordSetDelete.ZoneID {
+					t.Errorf("expected delete zone ID %s, got %s", tc.expectedRecordSetDelete.ZoneID, deleteAction.ZoneID)
+				}
+				if deleteAction.RecordSetID != tc.expectedRecordSetDelete.RecordSetID {
+					t.Errorf("expected delete record set ID %s, got %s", tc.expectedRecordSetDelete.RecordSetID, deleteAction.RecordSetID)
+				}
+
+				return
+			}
+
+			if tc.expectedRecordSetPut != nil {
+				if len(mockApi.RecordSetPuts) != 1 {
+					t.Errorf("expected 1 put, got %d", len(mockApi.RecordSetPuts))
+					return
+				}
+
+				putAction := mockApi.RecordSetPuts[0]
+				if putAction.ZoneID != tc.expectedRecordSetPut.ZoneID {
+					t.Errorf("expected put zone ID %s, got %s", tc.expectedRecordSetPut.ZoneID, putAction.ZoneID)
+				}
+
+				if putAction.RecordSetID != tc.expectedRecordSetPut.RecordSetID {
+					t.Errorf("expected put record set ID %s, got %s", tc.expectedRecordSetPut.RecordSetID, putAction.RecordSetID)
+				}
+
+				if len(putAction.Opts.Records) != len(tc.expectedRecordSetPut.Opts.Records) {
+					t.Errorf("expected records length %d, got %d", len(tc.expectedRecordSetPut.Opts.Records), len(putAction.Opts.Records))
+				}
+
+				for i, r := range putAction.Opts.Records {
+					if r != tc.expectedRecordSetPut.Opts.Records[i] {
+						t.Errorf("expected record %s at index %d, got %s", tc.expectedRecordSetPut.Opts.Records[i], i, r)
+					}
+				}
 			}
 		})
 	}

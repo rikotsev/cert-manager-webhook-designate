@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/cert-manager/cert-manager/pkg/acme/webhook"
 	"github.com/cert-manager/cert-manager/pkg/acme/webhook/apis/acme/v1alpha1"
@@ -21,6 +22,7 @@ const Name = "openstack-designate"
 
 var ErrFailedDesignateClientInitialization = errors.New("failed to initialize the designate client")
 var ErrNoZones = errors.New("there are no zones in designate to match from for the challenge")
+var ErrNoRecordSet = errors.New("there are no recordset to clean up")
 
 type designateDnsResolver struct {
 	configProvider *authConfigProvider
@@ -42,10 +44,14 @@ func (d *designateDnsResolver) Present(ch *v1alpha1.ChallengeRequest) error {
 
 	switch cfg.Strategy.Kind {
 	case StrategyKindSOA:
-		zoneId, err = d.soa(ch, err, designateClient)
-		if err != nil {
-			return err
-		}
+		zoneId, err = exactMatchZoneByName(ch.ResolvedZone, designateClient)
+	case StrategyKindZoneName:
+		zoneId, err = exactMatchZoneByName(*cfg.Strategy.ZoneName, designateClient)
+	case StrategyKindBestEffort:
+		zoneId, err = bestEffortMatchZone(ch.ResolvedFQDN, designateClient)
+	}
+	if err != nil {
+		return err
 	}
 
 	result := recordsets.Create(context.TODO(), designateClient, zoneId, recordsets.CreateOpts{
@@ -60,24 +66,80 @@ func (d *designateDnsResolver) Present(ch *v1alpha1.ChallengeRequest) error {
 	return nil
 }
 
-func (d *designateDnsResolver) soa(ch *v1alpha1.ChallengeRequest, err error, designateClient *gophercloud.ServiceClient) (string, error) {
-	page, err := zones.List(designateClient, zones.ListOpts{
+func (d *designateDnsResolver) CleanUp(ch *v1alpha1.ChallengeRequest) error {
+	designateClient, cfg, err := d.createDesignateClient(ch)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrFailedDesignateClientInitialization, err)
+	}
+
+	var zoneId string
+
+	switch cfg.Strategy.Kind {
+	case StrategyKindSOA:
+		zoneId, err = exactMatchZoneByName(ch.ResolvedZone, designateClient)
+	case StrategyKindZoneName:
+		zoneId, err = exactMatchZoneByName(*cfg.Strategy.ZoneName, designateClient)
+	case StrategyKindBestEffort:
+		zoneId, err = bestEffortMatchZone(ch.ResolvedFQDN, designateClient)
+	}
+	if err != nil {
+		return err
+	}
+
+	allRecordsPages, err := recordsets.ListByZone(designateClient, zoneId, recordsets.ListOpts{
 		Name: ch.ResolvedFQDN,
+		Type: "TXT",
+		Data: ch.Key,
 	}).AllPages(context.TODO())
 	if err != nil {
-		return "", err
+		return err
 	}
 
-	allZones, err := zones.ExtractZones(page)
+	allRecords, err := recordsets.ExtractRecordSets(allRecordsPages)
 	if err != nil {
-		return "", err
-	}
-	if len(allZones) == 0 {
-		return "", ErrNoZones
+		return err
 	}
 
-	zoneId := allZones[0].ID
-	return zoneId, nil
+	if len(allRecords) == 0 {
+		return ErrNoRecordSet
+	}
+
+	if len(allRecords[0].Records) == 1 {
+		err = recordsets.Delete(context.TODO(), designateClient, zoneId, allRecords[0].ID).ExtractErr()
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
+	cleanedUpRecords := make([]string, 0)
+	for _, record := range allRecords[0].Records {
+		if record != ch.Key {
+			cleanedUpRecords = append(cleanedUpRecords, record)
+		}
+	}
+
+	result := recordsets.Update(context.TODO(), designateClient, zoneId, allRecords[0].ID, recordsets.UpdateOpts{
+		Records: cleanedUpRecords,
+	})
+	if result.Err != nil {
+		return result.Err
+	}
+
+	return nil
+}
+
+func (d *designateDnsResolver) Initialize(kubeClientConfig *rest.Config, stopCh <-chan struct{}) error {
+	client, err := kubernetes.NewForConfig(kubeClientConfig)
+	if err != nil {
+		return err
+	}
+
+	d.configProvider = &authConfigProvider{client: client}
+
+	klog.V(2).Info(fmt.Sprintf("ACME DNS resolver - %s - initialized!", Name))
+
+	return nil
 }
 
 func (d *designateDnsResolver) createDesignateClient(ch *v1alpha1.ChallengeRequest) (*gophercloud.ServiceClient, *ChallengeConfig, error) {
@@ -105,22 +167,60 @@ func (d *designateDnsResolver) createDesignateClient(ch *v1alpha1.ChallengeReque
 	return designateClient, cfg, nil
 }
 
-func (d *designateDnsResolver) CleanUp(ch *v1alpha1.ChallengeRequest) error {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (d *designateDnsResolver) Initialize(kubeClientConfig *rest.Config, stopCh <-chan struct{}) error {
-	client, err := kubernetes.NewForConfig(kubeClientConfig)
+func exactMatchZoneByName(zoneName string, designateClient *gophercloud.ServiceClient) (string, error) {
+	page, err := zones.List(designateClient, zones.ListOpts{
+		Name: zoneName,
+	}).AllPages(context.TODO())
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	d.configProvider = &authConfigProvider{client: client}
+	allZones, err := zones.ExtractZones(page)
+	if err != nil {
+		return "", err
+	}
+	if len(allZones) == 0 {
+		return "", ErrNoZones
+	}
 
-	klog.V(2).Info(fmt.Sprintf("ACME DNS resolver - %s - initialized!", Name))
+	zoneId := allZones[0].ID
+	return zoneId, nil
+}
 
-	return nil
+func bestEffortMatchZone(fqdn string, designateClient *gophercloud.ServiceClient) (string, error) {
+	page, err := zones.List(designateClient, zones.ListOpts{}).AllPages(context.TODO())
+	if err != nil {
+		return "", err
+	}
+
+	allZones, err := zones.ExtractZones(page)
+	if err != nil {
+		return "", err
+	}
+	if len(allZones) == 0 {
+		return "", ErrNoZones
+	}
+
+	var matchedZone *zones.Zone
+
+	for i, z := range allZones {
+		if strings.HasSuffix(fqdn, z.Name) {
+			if matchedZone == nil {
+				matchedZone = &allZones[i]
+				continue
+			}
+
+			if len(z.Name) > len(matchedZone.Name) {
+				matchedZone = &allZones[i]
+			}
+		}
+	}
+
+	if matchedZone == nil {
+		return "", ErrNoZones
+	}
+
+	return matchedZone.ID, nil
 }
 
 func New() webhook.Solver {
