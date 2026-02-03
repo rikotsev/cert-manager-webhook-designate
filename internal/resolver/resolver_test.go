@@ -18,10 +18,12 @@ func TestDesignateDnsResolver_Present(t *testing.T) {
 	tcs := []struct {
 		name                    string
 		zones                   []mockresolver.MockZone
+		recordSets              []mockresolver.MockRecordSet
 		secret                  *corev1.Secret
 		challengeRequest        *v1alpha1.ChallengeRequest
 		expectedError           error
 		expectedZoneUpdate      *mockresolver.ZoneUpdate
+		expectedRecordSetPut    *mockresolver.RecordSetPut
 		mockErrorListingZones   bool
 		mockErrorAuthenticating bool
 		generalError            bool
@@ -193,6 +195,71 @@ func TestDesignateDnsResolver_Present(t *testing.T) {
 					Name:    "my.api.test.example.com",
 					Type:    "TXT",
 					Records: []string{"challenge"},
+				},
+			},
+		},
+		{
+			name: "present challenge with SOA strategy - update existing recordset",
+			zones: []mockresolver.MockZone{
+				{
+					ID:   "12345",
+					Name: "example.com.",
+				},
+				{
+					ID:   "67890",
+					Name: "test.example.com.",
+				},
+			},
+			recordSets: []mockresolver.MockRecordSet{
+				{
+					ID:     "12345-1",
+					ZoneID: "12345",
+					Name:   "cool.example.com",
+					Type:   "TXT",
+					Records: []string{
+						"another-record",
+					},
+				},
+			},
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "foo",
+					Namespace: "bar",
+				},
+				Data: map[string][]byte{
+					"tenantName": []byte("testTenant"),
+					"tenantId":   []byte("testTenantId"),
+					"domainName": []byte("testDomainName"),
+					"domainId":   []byte("testDomainId"),
+					"username":   []byte("john-doe"),
+					"password":   []byte("secretpass"),
+					"region":     []byte("RegionOne"),
+				},
+			},
+			challengeRequest: &v1alpha1.ChallengeRequest{
+				UID:                     "",
+				Action:                  "",
+				Type:                    "",
+				DNSName:                 "",
+				Key:                     "challenge",
+				ResourceNamespace:       "",
+				ResolvedFQDN:            "cool.example.com",
+				ResolvedZone:            "example.com.",
+				AllowAmbientCredentials: false,
+				Config: &apiextensionsv1.JSON{Raw: []byte(`{
+					"secretName": "foo",
+					"secretNamespace": "bar",
+					"strategy": {
+						"kind": "SOA"
+					}
+				}`)},
+			},
+			expectedError: nil,
+			expectedRecordSetPut: &mockresolver.RecordSetPut{
+				ZoneID:      "12345",
+				RecordSetID: "12345-1",
+				Opts: recordsets.UpdateOpts{
+					Records: []string{"another-record", "challenge"},
 				},
 			},
 		},
@@ -441,6 +508,7 @@ func TestDesignateDnsResolver_Present(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			mockApi := mockresolver.CreateMockOpenstackApi(t)
 			mockApi.Zones = tc.zones
+			mockApi.RecordSets = tc.recordSets
 			mockApi.ErrorListingZones = tc.mockErrorListingZones
 			mockApi.ErrorAuthenticating = tc.mockErrorAuthenticating
 			openstackMock := httptest.NewServer(mockApi)
@@ -499,8 +567,30 @@ func TestDesignateDnsResolver_Present(t *testing.T) {
 						}
 					}
 				}
-			} else if len(mockApi.Updates) != 0 {
-				t.Errorf("expected 0 updates, got %d", len(mockApi.Updates))
+				return
+			}
+
+			if tc.expectedRecordSetPut != nil {
+				if len(mockApi.RecordSetPuts) != 1 {
+					t.Errorf("expected 1 put, got %d", len(mockApi.RecordSetPuts))
+					return
+				}
+
+				put := mockApi.RecordSetPuts[0]
+
+				if put.ZoneID != tc.expectedRecordSetPut.ZoneID {
+					t.Errorf("expected zone ID %s, got %s", tc.expectedRecordSetPut.ZoneID, put.ZoneID)
+				}
+
+				if put.RecordSetID != tc.expectedRecordSetPut.RecordSetID {
+					t.Errorf("expected record set ID %s, got %s", tc.expectedRecordSetPut.RecordSetID, put.RecordSetID)
+				}
+
+				for i, r := range put.Opts.Records {
+					if r != tc.expectedRecordSetPut.Opts.Records[i] {
+						t.Errorf("expected record %s at index %d, got %s", tc.expectedRecordSetPut.Opts.Records[i], i, r)
+					}
+				}
 			}
 		})
 	}
@@ -691,7 +781,7 @@ func TestDesignateDnsResolver_CleanUp(t *testing.T) {
 					}
 				}`)},
 			},
-			expectedError: ErrNoRecordSet,
+			expectedError: nil,
 		},
 	}
 

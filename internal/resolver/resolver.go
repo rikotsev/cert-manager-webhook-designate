@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/cert-manager/cert-manager/pkg/acme/webhook"
@@ -54,16 +55,34 @@ func (d *designateDnsResolver) Present(ch *v1alpha1.ChallengeRequest) error {
 		return err
 	}
 
-	result := recordsets.Create(context.TODO(), designateClient, zoneId, recordsets.CreateOpts{
-		Name:    ch.ResolvedFQDN,
-		Type:    "TXT",
-		Records: []string{ch.Key},
-	})
-	if result.Err != nil {
-		return result.Err
+	allRecordSets, err := findRecordSetsForChallenge(ch, designateClient, zoneId)
+	if err != nil {
+		return err
 	}
 
-	return nil
+	if len(allRecordSets) == 0 {
+		result := recordsets.Create(context.TODO(), designateClient, zoneId, recordsets.CreateOpts{
+			Name:    ch.ResolvedFQDN,
+			Type:    "TXT",
+			Records: []string{ch.Key},
+		})
+		if result.Err != nil {
+			return result.Err
+		}
+
+		return nil
+	}
+
+	if slices.Contains(allRecordSets[0].Records, ch.Key) {
+		return nil
+	}
+
+	allRecordSets[0].Records = append(allRecordSets[0].Records, ch.Key)
+
+	result := recordsets.Update(context.TODO(), designateClient, zoneId, allRecordSets[0].ID, recordsets.UpdateOpts{
+		Records: allRecordSets[0].Records,
+	})
+	return result.Err
 }
 
 func (d *designateDnsResolver) CleanUp(ch *v1alpha1.ChallengeRequest) error {
@@ -86,26 +105,18 @@ func (d *designateDnsResolver) CleanUp(ch *v1alpha1.ChallengeRequest) error {
 		return err
 	}
 
-	allRecordsPages, err := recordsets.ListByZone(designateClient, zoneId, recordsets.ListOpts{
-		Name: ch.ResolvedFQDN,
-		Type: "TXT",
-		Data: ch.Key,
-	}).AllPages(context.TODO())
+	allRecordSets, err := findRecordSetsForChallenge(ch, designateClient, zoneId)
 	if err != nil {
 		return err
 	}
 
-	allRecords, err := recordsets.ExtractRecordSets(allRecordsPages)
-	if err != nil {
-		return err
+	if len(allRecordSets) == 0 {
+		klog.V(4).Infof("No recordsets found for challenge %s", ch.ResolvedFQDN)
+		return nil
 	}
 
-	if len(allRecords) == 0 {
-		return ErrNoRecordSet
-	}
-
-	if len(allRecords[0].Records) == 1 {
-		err = recordsets.Delete(context.TODO(), designateClient, zoneId, allRecords[0].ID).ExtractErr()
+	if len(allRecordSets[0].Records) == 1 && allRecordSets[0].Records[0] == ch.Key {
+		err = recordsets.Delete(context.TODO(), designateClient, zoneId, allRecordSets[0].ID).ExtractErr()
 		if err != nil {
 			return err
 		}
@@ -113,20 +124,32 @@ func (d *designateDnsResolver) CleanUp(ch *v1alpha1.ChallengeRequest) error {
 	}
 
 	cleanedUpRecords := make([]string, 0)
-	for _, record := range allRecords[0].Records {
+	for _, record := range allRecordSets[0].Records {
 		if record != ch.Key {
 			cleanedUpRecords = append(cleanedUpRecords, record)
 		}
 	}
 
-	result := recordsets.Update(context.TODO(), designateClient, zoneId, allRecords[0].ID, recordsets.UpdateOpts{
+	result := recordsets.Update(context.TODO(), designateClient, zoneId, allRecordSets[0].ID, recordsets.UpdateOpts{
 		Records: cleanedUpRecords,
 	})
-	if result.Err != nil {
-		return result.Err
+	return result.Err
+}
+
+func findRecordSetsForChallenge(ch *v1alpha1.ChallengeRequest, designateClient *gophercloud.ServiceClient, zoneId string) ([]recordsets.RecordSet, error) {
+	allRecordsPages, err := recordsets.ListByZone(designateClient, zoneId, recordsets.ListOpts{
+		Name: ch.ResolvedFQDN,
+		Type: "TXT",
+	}).AllPages(context.TODO())
+	if err != nil {
+		return nil, err
 	}
 
-	return nil
+	allRecordSets, err := recordsets.ExtractRecordSets(allRecordsPages)
+	if err != nil {
+		return nil, err
+	}
+	return allRecordSets, nil
 }
 
 func (d *designateDnsResolver) Initialize(kubeClientConfig *rest.Config, stopCh <-chan struct{}) error {

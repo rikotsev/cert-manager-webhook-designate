@@ -6,7 +6,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"slices"
 	"strings"
 	"testing"
 
@@ -217,13 +216,11 @@ func (o *OpenstackApiMock) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		zoneID := parts[4]
 		recordSetName := r.URL.Query().Get("name")
 		recordSetType := r.URL.Query().Get("type")
-		recordSetData := r.URL.Query().Get("data")
 
 		var matchingRecordSets = make([]MockRecordSet, 0)
 
 		for idx, recordSet := range o.RecordSets {
-			if recordSet.Name == recordSetName && recordSet.Type == recordSetType &&
-				slices.Contains(recordSet.Records, recordSetData) && recordSet.ZoneID == zoneID {
+			if recordSet.Name == recordSetName && recordSet.Type == recordSetType && recordSet.ZoneID == zoneID {
 				matchingRecordSets = append(matchingRecordSets, o.RecordSets[idx])
 			}
 		}
@@ -272,6 +269,7 @@ func (o *OpenstackApiMock) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			RecordSetID: recordSetID,
 		})
 		w.WriteHeader(http.StatusOK)
+		return
 	}
 
 	if r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/dns/v2/zones") && strings.Contains(r.URL.Path, "/recordsets") {
@@ -297,6 +295,10 @@ func (o *OpenstackApiMock) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Opts:        opts,
 		})
 		w.WriteHeader(http.StatusOK)
+		if _, err := w.Write([]byte("{}")); err != nil {
+			o.t.Errorf("failed to write recordset response: %v", err)
+		}
+		return
 	}
 }
 
