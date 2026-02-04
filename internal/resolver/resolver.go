@@ -139,7 +139,7 @@ func (d *designateDnsResolver) CleanUp(ch *v1alpha1.ChallengeRequest) error {
 	return result.Err
 }
 
-func (d *designateDnsResolver) Initialize(kubeClientConfig *rest.Config, stopCh <-chan struct{}) error {
+func (d *designateDnsResolver) Initialize(kubeClientConfig *rest.Config, _ <-chan struct{}) error {
 	client, err := kubernetes.NewForConfig(kubeClientConfig)
 	if err != nil {
 		return err
