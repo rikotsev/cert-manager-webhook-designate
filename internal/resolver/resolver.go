@@ -23,7 +23,6 @@ const Name = "openstack-designate"
 
 var ErrFailedDesignateClientInitialization = errors.New("failed to initialize the designate client")
 var ErrNoZones = errors.New("there are no zones in designate to match from for the challenge")
-var ErrNoRecordSet = errors.New("there are no recordset to clean up")
 
 type designateDnsResolver struct {
 	configProvider *authConfigProvider
@@ -60,11 +59,13 @@ func (d *designateDnsResolver) Present(ch *v1alpha1.ChallengeRequest) error {
 		return err
 	}
 
+	record := enforceQuotes(ch.Key)
+
 	if len(allRecordSets) == 0 {
 		result := recordsets.Create(context.TODO(), designateClient, zoneId, recordsets.CreateOpts{
-			Name:    ch.ResolvedFQDN,
+			Name:    enforceTrailingDot(ch.ResolvedFQDN),
 			Type:    "TXT",
-			Records: []string{ch.Key},
+			Records: []string{record},
 		})
 		if result.Err != nil {
 			return result.Err
@@ -73,11 +74,11 @@ func (d *designateDnsResolver) Present(ch *v1alpha1.ChallengeRequest) error {
 		return nil
 	}
 
-	if slices.Contains(allRecordSets[0].Records, ch.Key) {
+	if slices.Contains(allRecordSets[0].Records, record) {
 		return nil
 	}
 
-	allRecordSets[0].Records = append(allRecordSets[0].Records, ch.Key)
+	allRecordSets[0].Records = append(allRecordSets[0].Records, record)
 
 	result := recordsets.Update(context.TODO(), designateClient, zoneId, allRecordSets[0].ID, recordsets.UpdateOpts{
 		Records: allRecordSets[0].Records,
@@ -115,7 +116,9 @@ func (d *designateDnsResolver) CleanUp(ch *v1alpha1.ChallengeRequest) error {
 		return nil
 	}
 
-	if len(allRecordSets[0].Records) == 1 && allRecordSets[0].Records[0] == ch.Key {
+	record := enforceQuotes(ch.Key)
+
+	if len(allRecordSets[0].Records) == 1 && allRecordSets[0].Records[0] == record {
 		err = recordsets.Delete(context.TODO(), designateClient, zoneId, allRecordSets[0].ID).ExtractErr()
 		if err != nil {
 			return err
@@ -124,9 +127,9 @@ func (d *designateDnsResolver) CleanUp(ch *v1alpha1.ChallengeRequest) error {
 	}
 
 	cleanedUpRecords := make([]string, 0)
-	for _, record := range allRecordSets[0].Records {
-		if record != ch.Key {
-			cleanedUpRecords = append(cleanedUpRecords, record)
+	for _, rec := range allRecordSets[0].Records {
+		if rec != record {
+			cleanedUpRecords = append(cleanedUpRecords, rec)
 		}
 	}
 
@@ -134,22 +137,6 @@ func (d *designateDnsResolver) CleanUp(ch *v1alpha1.ChallengeRequest) error {
 		Records: cleanedUpRecords,
 	})
 	return result.Err
-}
-
-func findRecordSetsForChallenge(ch *v1alpha1.ChallengeRequest, designateClient *gophercloud.ServiceClient, zoneId string) ([]recordsets.RecordSet, error) {
-	allRecordsPages, err := recordsets.ListByZone(designateClient, zoneId, recordsets.ListOpts{
-		Name: ch.ResolvedFQDN,
-		Type: "TXT",
-	}).AllPages(context.TODO())
-	if err != nil {
-		return nil, err
-	}
-
-	allRecordSets, err := recordsets.ExtractRecordSets(allRecordsPages)
-	if err != nil {
-		return nil, err
-	}
-	return allRecordSets, nil
 }
 
 func (d *designateDnsResolver) Initialize(kubeClientConfig *rest.Config, stopCh <-chan struct{}) error {
@@ -191,6 +178,7 @@ func (d *designateDnsResolver) createDesignateClient(ch *v1alpha1.ChallengeReque
 }
 
 func exactMatchZoneByName(zoneName string, designateClient *gophercloud.ServiceClient) (string, error) {
+	zoneName = enforceTrailingDot(zoneName)
 	page, err := zones.List(designateClient, zones.ListOpts{
 		Name: zoneName,
 	}).AllPages(context.TODO())
@@ -211,6 +199,7 @@ func exactMatchZoneByName(zoneName string, designateClient *gophercloud.ServiceC
 }
 
 func bestEffortMatchZone(fqdn string, designateClient *gophercloud.ServiceClient) (string, error) {
+	fqdn = enforceTrailingDot(fqdn)
 	page, err := zones.List(designateClient, zones.ListOpts{}).AllPages(context.TODO())
 	if err != nil {
 		return "", err
@@ -244,6 +233,38 @@ func bestEffortMatchZone(fqdn string, designateClient *gophercloud.ServiceClient
 	}
 
 	return matchedZone.ID, nil
+}
+
+func findRecordSetsForChallenge(ch *v1alpha1.ChallengeRequest, designateClient *gophercloud.ServiceClient, zoneId string) ([]recordsets.RecordSet, error) {
+	allRecordsPages, err := recordsets.ListByZone(designateClient, zoneId, recordsets.ListOpts{
+		Name: enforceTrailingDot(ch.ResolvedFQDN),
+		Type: "TXT",
+	}).AllPages(context.TODO())
+	if err != nil {
+		return nil, err
+	}
+
+	allRecordSets, err := recordsets.ExtractRecordSets(allRecordsPages)
+	if err != nil {
+		return nil, err
+	}
+	return allRecordSets, nil
+}
+
+func enforceTrailingDot(input string) string {
+	if !strings.HasSuffix(input, ".") {
+		input = input + "."
+	}
+
+	return input
+}
+
+func enforceQuotes(input string) string {
+	if !strings.HasPrefix(input, "\"") && !strings.HasSuffix(input, "\"") {
+		input = "\"" + input + "\""
+	}
+
+	return input
 }
 
 func New() webhook.Solver {

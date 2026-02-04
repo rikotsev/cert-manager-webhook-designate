@@ -63,7 +63,7 @@ func TestDesignateDnsResolver_Present(t *testing.T) {
 				Key:                     "challenge",
 				ResourceNamespace:       "",
 				ResolvedFQDN:            "cool.example.com",
-				ResolvedZone:            "",
+				ResolvedZone:            "example.com",
 				AllowAmbientCredentials: false,
 				Config: &apiextensionsv1.JSON{Raw: []byte(`{
 					"secretName": "foo",
@@ -77,9 +77,9 @@ func TestDesignateDnsResolver_Present(t *testing.T) {
 			expectedZoneUpdate: &mockresolver.ZoneUpdate{
 				ZoneID: "12345",
 				Opts: recordsets.CreateOpts{
-					Name:    "cool.example.com",
+					Name:    "cool.example.com.",
 					Type:    "TXT",
-					Records: []string{"challenge"},
+					Records: []string{"\"challenge\""},
 				},
 			},
 		},
@@ -133,9 +133,9 @@ func TestDesignateDnsResolver_Present(t *testing.T) {
 			expectedZoneUpdate: &mockresolver.ZoneUpdate{
 				ZoneID: "12345",
 				Opts: recordsets.CreateOpts{
-					Name:    "cool.example.com",
+					Name:    "cool.example.com.",
 					Type:    "TXT",
-					Records: []string{"challenge"},
+					Records: []string{"\"challenge\""},
 				},
 			},
 		},
@@ -152,7 +152,7 @@ func TestDesignateDnsResolver_Present(t *testing.T) {
 				},
 				{
 					ID:   "12312",
-					Name: "api.test.example.com",
+					Name: "api.test.example.com.",
 				},
 			},
 			secret: &corev1.Secret{
@@ -192,9 +192,9 @@ func TestDesignateDnsResolver_Present(t *testing.T) {
 			expectedZoneUpdate: &mockresolver.ZoneUpdate{
 				ZoneID: "12312",
 				Opts: recordsets.CreateOpts{
-					Name:    "my.api.test.example.com",
+					Name:    "my.api.test.example.com.",
 					Type:    "TXT",
-					Records: []string{"challenge"},
+					Records: []string{"\"challenge\""},
 				},
 			},
 		},
@@ -214,7 +214,7 @@ func TestDesignateDnsResolver_Present(t *testing.T) {
 				{
 					ID:     "12345-1",
 					ZoneID: "12345",
-					Name:   "cool.example.com",
+					Name:   "cool.example.com.",
 					Type:   "TXT",
 					Records: []string{
 						"another-record",
@@ -244,7 +244,7 @@ func TestDesignateDnsResolver_Present(t *testing.T) {
 				Key:                     "challenge",
 				ResourceNamespace:       "",
 				ResolvedFQDN:            "cool.example.com",
-				ResolvedZone:            "example.com.",
+				ResolvedZone:            "example.com",
 				AllowAmbientCredentials: false,
 				Config: &apiextensionsv1.JSON{Raw: []byte(`{
 					"secretName": "foo",
@@ -259,7 +259,7 @@ func TestDesignateDnsResolver_Present(t *testing.T) {
 				ZoneID:      "12345",
 				RecordSetID: "12345-1",
 				Opts: recordsets.UpdateOpts{
-					Records: []string{"another-record", "challenge"},
+					Records: []string{"another-record", "\"challenge\""},
 				},
 			},
 		},
@@ -623,10 +623,10 @@ func TestDesignateDnsResolver_CleanUp(t *testing.T) {
 				{
 					ID:     "12345-1",
 					ZoneID: "12345",
-					Name:   "cool.example.com",
+					Name:   "cool.example.com.",
 					Type:   "TXT",
 					Records: []string{
-						"challenge",
+						"\"challenge\"",
 					},
 				},
 			},
@@ -653,7 +653,7 @@ func TestDesignateDnsResolver_CleanUp(t *testing.T) {
 				Key:                     "challenge",
 				ResourceNamespace:       "",
 				ResolvedFQDN:            "cool.example.com",
-				ResolvedZone:            "",
+				ResolvedZone:            "example.com",
 				AllowAmbientCredentials: false,
 				Config: &apiextensionsv1.JSON{Raw: []byte(`{
 					"secretName": "foo",
@@ -684,10 +684,10 @@ func TestDesignateDnsResolver_CleanUp(t *testing.T) {
 				{
 					ID:     "12345-1",
 					ZoneID: "12345",
-					Name:   "cool.example.com",
+					Name:   "cool.example.com.",
 					Type:   "TXT",
 					Records: []string{
-						"challenge",
+						"\"challenge\"",
 						"another-record",
 					},
 				},
@@ -715,7 +715,7 @@ func TestDesignateDnsResolver_CleanUp(t *testing.T) {
 				Key:                     "challenge",
 				ResourceNamespace:       "",
 				ResolvedFQDN:            "cool.example.com",
-				ResolvedZone:            "",
+				ResolvedZone:            "example.com",
 				AllowAmbientCredentials: false,
 				Config: &apiextensionsv1.JSON{Raw: []byte(`{
 					"secretName": "foo",
@@ -771,7 +771,7 @@ func TestDesignateDnsResolver_CleanUp(t *testing.T) {
 				Key:                     "challenge",
 				ResourceNamespace:       "",
 				ResolvedFQDN:            "cool.example.com",
-				ResolvedZone:            "",
+				ResolvedZone:            "example.com",
 				AllowAmbientCredentials: false,
 				Config: &apiextensionsv1.JSON{Raw: []byte(`{
 					"secretName": "foo",

@@ -1,0 +1,7 @@
+{
+  "secretName": "designate-secret",
+  "secretNamespace": "default",
+  "strategy": {
+    "kind": "SOA"
+  }
+}
