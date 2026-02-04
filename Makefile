@@ -1,6 +1,6 @@
 OUTPUT_BINARY=webhook
 
-.PHONY: all setup clean lint test test-e2e build setup-test-assets
+.PHONY: all setup clean lint test test-e2e build
 all: clean setup lint test build
 
 setup:
@@ -10,7 +10,7 @@ clean:
 	rm -rf build
 
 lint:
-	golangci-lint run
+	go tool golangci-lint run
 
 test:
 	go test ./... -cover
