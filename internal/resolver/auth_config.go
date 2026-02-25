@@ -20,41 +20,51 @@ type AuthConfig struct {
 }
 
 var ErrMissingAuthValue = errors.New("missing auth value")
+var ErrEitherDomainIdOrNameRequired = errors.New("one of either domain id or domain name is required")
 var authValues = []struct {
-	keyName string
-	setter  func(*AuthConfig, string)
+	keyName  string
+	required bool
+	setter   func(*AuthConfig, string)
 }{
 	{
-		keyName: "tenantName",
-		setter:  func(cfg *AuthConfig, value string) { cfg.authOpts.TenantName = value },
+		keyName:  "tenantName",
+		required: true,
+		setter:   func(cfg *AuthConfig, value string) { cfg.authOpts.TenantName = value },
 	},
 	{
-		keyName: "tenantId",
-		setter:  func(cfg *AuthConfig, value string) { cfg.authOpts.TenantID = value },
+		keyName:  "tenantId",
+		required: true,
+		setter:   func(cfg *AuthConfig, value string) { cfg.authOpts.TenantID = value },
 	},
 	{
-		keyName: "domainName",
-		setter:  func(cfg *AuthConfig, value string) { cfg.authOpts.DomainName = value },
+		keyName:  "domainName",
+		required: false,
+		setter:   func(cfg *AuthConfig, value string) { cfg.authOpts.DomainName = value },
 	},
 	{
-		keyName: "domainId",
-		setter:  func(cfg *AuthConfig, value string) { cfg.authOpts.DomainID = value },
+		keyName:  "domainId",
+		required: false,
+		setter:   func(cfg *AuthConfig, value string) { cfg.authOpts.DomainID = value },
 	},
 	{
-		keyName: "username",
-		setter:  func(cfg *AuthConfig, value string) { cfg.authOpts.Username = value },
+		keyName:  "username",
+		required: true,
+		setter:   func(cfg *AuthConfig, value string) { cfg.authOpts.Username = value },
 	},
 	{
-		keyName: "password",
-		setter:  func(cfg *AuthConfig, value string) { cfg.authOpts.Password = value },
+		keyName:  "password",
+		required: true,
+		setter:   func(cfg *AuthConfig, value string) { cfg.authOpts.Password = value },
 	},
 	{
-		keyName: "identityEndpoint",
-		setter:  func(cfg *AuthConfig, value string) { cfg.authOpts.IdentityEndpoint = value },
+		keyName:  "identityEndpoint",
+		required: true,
+		setter:   func(cfg *AuthConfig, value string) { cfg.authOpts.IdentityEndpoint = value },
 	},
 	{
-		keyName: "region",
-		setter:  func(cfg *AuthConfig, value string) { cfg.endpointOpts.Region = value },
+		keyName:  "region",
+		required: true,
+		setter:   func(cfg *AuthConfig, value string) { cfg.endpointOpts.Region = value },
 	},
 }
 
@@ -69,10 +79,19 @@ func (a *authConfigProvider) Get(ctx context.Context, namespace, secretName stri
 
 	for _, val := range authValues {
 		binaryContent, ok := secret.Data[val.keyName]
-		if !ok {
+		if !ok && val.required {
 			return nil, fmt.Errorf("%w: %s", ErrMissingAuthValue, val.keyName)
 		}
 		val.setter(cfg, string(binaryContent))
+	}
+
+	if cfg.authOpts.DomainID == "" && cfg.authOpts.DomainName == "" {
+		return nil, ErrEitherDomainIdOrNameRequired
+	}
+
+	//Always use DomainID over DomainName
+	if cfg.authOpts.DomainID != "" {
+		cfg.authOpts.DomainName = ""
 	}
 
 	cfg.authOpts.AllowReauth = true

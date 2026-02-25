@@ -34,13 +34,42 @@ func TestAuthConfigProvider_Get(t *testing.T) {
 		expectedError    error
 	}{
 		{
-			name:   "happy path",
+			name:   "happy path - with both domainId and domainName",
 			secret: dummySecret(secretName, namespace, allKeys),
 			expectedAuthOpts: &gophercloud.AuthOptions{
 				TenantName:       "testTenant",
 				TenantID:         "testTenantId",
-				DomainName:       "testDomainName",
 				DomainID:         "testDomainId",
+				Username:         "john-doe",
+				Password:         "secretpass",
+				IdentityEndpoint: "https://example.com",
+				AllowReauth:      true,
+			},
+			expectedNotFound: false,
+			expectedError:    nil,
+		},
+		{
+			name:   "happy path - with domainId",
+			secret: dummySecret(secretName, namespace, stripKey(allKeys, "domainName")),
+			expectedAuthOpts: &gophercloud.AuthOptions{
+				TenantName:       "testTenant",
+				TenantID:         "testTenantId",
+				DomainID:         "testDomainId",
+				Username:         "john-doe",
+				Password:         "secretpass",
+				IdentityEndpoint: "https://example.com",
+				AllowReauth:      true,
+			},
+			expectedNotFound: false,
+			expectedError:    nil,
+		},
+		{
+			name:   "happy path - with name",
+			secret: dummySecret(secretName, namespace, stripKey(allKeys, "domainId")),
+			expectedAuthOpts: &gophercloud.AuthOptions{
+				TenantName:       "testTenant",
+				TenantID:         "testTenantId",
+				DomainName:       "testDomainName",
 				Username:         "john-doe",
 				Password:         "secretpass",
 				IdentityEndpoint: "https://example.com",
@@ -85,18 +114,11 @@ func TestAuthConfigProvider_Get(t *testing.T) {
 			expectedError:    ErrMissingAuthValue,
 		},
 		{
-			name:             "missing domain name",
-			secret:           dummySecret(secretName, namespace, stripKey(allKeys, "domainName")),
+			name:             "missing domain name or domain id",
+			secret:           dummySecret(secretName, namespace, stripKey(stripKey(allKeys, "domainName"), "domainId")),
 			expectedAuthOpts: nil,
 			expectedNotFound: false,
-			expectedError:    ErrMissingAuthValue,
-		},
-		{
-			name:             "missing domain id",
-			secret:           dummySecret(secretName, namespace, stripKey(allKeys, "domainId")),
-			expectedAuthOpts: nil,
-			expectedNotFound: false,
-			expectedError:    ErrMissingAuthValue,
+			expectedError:    ErrEitherDomainIdOrNameRequired,
 		},
 		{
 			name:             "missing username",
@@ -165,32 +187,32 @@ func TestAuthConfigProvider_Get(t *testing.T) {
 				return
 			}
 
-			if cfg.authOpts.TenantName != allKeys["tenantName"] {
-				t.Errorf("got TenantName: %s, want %s", cfg.authOpts.TenantName, allKeys["tenantName"])
+			if cfg.authOpts.TenantName != tc.expectedAuthOpts.TenantName {
+				t.Errorf("got TenantName: %s, want %s", cfg.authOpts.TenantName, tc.expectedAuthOpts.TenantName)
 			}
 
-			if cfg.authOpts.TenantID != allKeys["tenantId"] {
-				t.Errorf("got TenantID: %s, want %s", cfg.authOpts.TenantID, allKeys["tenantId"])
+			if cfg.authOpts.TenantID != tc.expectedAuthOpts.TenantID {
+				t.Errorf("got TenantID: %s, want %s", cfg.authOpts.TenantID, tc.expectedAuthOpts.TenantID)
 			}
 
-			if cfg.authOpts.DomainName != allKeys["domainName"] {
-				t.Errorf("got DomainName: %s, want %s", cfg.authOpts.DomainName, allKeys["domainName"])
+			if cfg.authOpts.DomainName != tc.expectedAuthOpts.DomainName {
+				t.Errorf("got DomainName: %s, want %s", cfg.authOpts.DomainName, tc.expectedAuthOpts.DomainName)
 			}
 
-			if cfg.authOpts.DomainID != allKeys["domainId"] {
-				t.Errorf("got DomainID: %s, want %s", cfg.authOpts.DomainID, allKeys["domainId"])
+			if cfg.authOpts.DomainID != tc.expectedAuthOpts.DomainID {
+				t.Errorf("got DomainID: %s, want %s", cfg.authOpts.DomainID, tc.expectedAuthOpts.DomainID)
 			}
 
-			if cfg.authOpts.Username != allKeys["username"] {
-				t.Errorf("got Username: %s, want %s", cfg.authOpts.Username, allKeys["username"])
+			if cfg.authOpts.Username != tc.expectedAuthOpts.Username {
+				t.Errorf("got Username: %s, want %s", cfg.authOpts.Username, tc.expectedAuthOpts.Username)
 			}
 
-			if cfg.authOpts.Password != allKeys["password"] {
-				t.Errorf("got Password: %s, want %s", cfg.authOpts.Password, allKeys["password"])
+			if cfg.authOpts.Password != tc.expectedAuthOpts.Password {
+				t.Errorf("got Password: %s, want %s", cfg.authOpts.Password, tc.expectedAuthOpts.Password)
 			}
 
-			if cfg.authOpts.IdentityEndpoint != allKeys["identityEndpoint"] {
-				t.Errorf("got IdentityEndpoint: %s, want %s", cfg.authOpts.IdentityEndpoint, allKeys["identityEndpoint"])
+			if cfg.authOpts.IdentityEndpoint != tc.expectedAuthOpts.IdentityEndpoint {
+				t.Errorf("got IdentityEndpoint: %s, want %s", cfg.authOpts.IdentityEndpoint, tc.expectedAuthOpts.IdentityEndpoint)
 			}
 
 			if cfg.endpointOpts.Region != allKeys["region"] {
