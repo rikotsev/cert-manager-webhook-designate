@@ -59,13 +59,11 @@ func (d *designateDnsResolver) Present(ch *v1alpha1.ChallengeRequest) error {
 		return err
 	}
 
-	record := enforceQuotes(ch.Key)
-
 	if len(allRecordSets) == 0 {
 		result := recordsets.Create(context.TODO(), designateClient, zoneId, recordsets.CreateOpts{
 			Name:    enforceTrailingDot(ch.ResolvedFQDN),
 			Type:    "TXT",
-			Records: []string{record},
+			Records: []string{ch.Key},
 		})
 		if result.Err != nil {
 			return result.Err
@@ -74,11 +72,11 @@ func (d *designateDnsResolver) Present(ch *v1alpha1.ChallengeRequest) error {
 		return nil
 	}
 
-	if slices.Contains(allRecordSets[0].Records, record) {
+	if slices.Contains(allRecordSets[0].Records, ch.Key) {
 		return nil
 	}
 
-	allRecordSets[0].Records = append(allRecordSets[0].Records, record)
+	allRecordSets[0].Records = append(allRecordSets[0].Records, ch.Key)
 
 	result := recordsets.Update(context.TODO(), designateClient, zoneId, allRecordSets[0].ID, recordsets.UpdateOpts{
 		Records: allRecordSets[0].Records,
@@ -116,9 +114,7 @@ func (d *designateDnsResolver) CleanUp(ch *v1alpha1.ChallengeRequest) error {
 		return nil
 	}
 
-	record := enforceQuotes(ch.Key)
-
-	if len(allRecordSets[0].Records) == 1 && allRecordSets[0].Records[0] == record {
+	if len(allRecordSets[0].Records) == 1 && allRecordSets[0].Records[0] == ch.Key {
 		err = recordsets.Delete(context.TODO(), designateClient, zoneId, allRecordSets[0].ID).ExtractErr()
 		if err != nil {
 			return err
@@ -128,7 +124,7 @@ func (d *designateDnsResolver) CleanUp(ch *v1alpha1.ChallengeRequest) error {
 
 	cleanedUpRecords := make([]string, 0)
 	for _, rec := range allRecordSets[0].Records {
-		if rec != record {
+		if rec != ch.Key {
 			cleanedUpRecords = append(cleanedUpRecords, rec)
 		}
 	}
@@ -254,14 +250,6 @@ func findRecordSetsForChallenge(ch *v1alpha1.ChallengeRequest, designateClient *
 func enforceTrailingDot(input string) string {
 	if !strings.HasSuffix(input, ".") {
 		input = input + "."
-	}
-
-	return input
-}
-
-func enforceQuotes(input string) string {
-	if !strings.HasPrefix(input, "\"") && !strings.HasSuffix(input, "\"") {
-		input = "\"" + input + "\""
 	}
 
 	return input

@@ -79,7 +79,7 @@ func TestDesignateDnsResolver_Present(t *testing.T) {
 				Opts: recordsets.CreateOpts{
 					Name:    "cool.example.com.",
 					Type:    "TXT",
-					Records: []string{"\"challenge\""},
+					Records: []string{"challenge"},
 				},
 			},
 		},
@@ -135,7 +135,7 @@ func TestDesignateDnsResolver_Present(t *testing.T) {
 				Opts: recordsets.CreateOpts{
 					Name:    "cool.example.com.",
 					Type:    "TXT",
-					Records: []string{"\"challenge\""},
+					Records: []string{"challenge"},
 				},
 			},
 		},
@@ -194,7 +194,7 @@ func TestDesignateDnsResolver_Present(t *testing.T) {
 				Opts: recordsets.CreateOpts{
 					Name:    "my.api.test.example.com.",
 					Type:    "TXT",
-					Records: []string{"\"challenge\""},
+					Records: []string{"challenge"},
 				},
 			},
 		},
@@ -259,7 +259,7 @@ func TestDesignateDnsResolver_Present(t *testing.T) {
 				ZoneID:      "12345",
 				RecordSetID: "12345-1",
 				Opts: recordsets.UpdateOpts{
-					Records: []string{"another-record", "\"challenge\""},
+					Records: []string{"another-record", "challenge"},
 				},
 			},
 		},
@@ -626,7 +626,7 @@ func TestDesignateDnsResolver_CleanUp(t *testing.T) {
 					Name:   "cool.example.com.",
 					Type:   "TXT",
 					Records: []string{
-						"\"challenge\"",
+						"challenge",
 					},
 				},
 			},
@@ -687,7 +687,7 @@ func TestDesignateDnsResolver_CleanUp(t *testing.T) {
 					Name:   "cool.example.com.",
 					Type:   "TXT",
 					Records: []string{
-						"\"challenge\"",
+						"challenge",
 						"another-record",
 					},
 				},
