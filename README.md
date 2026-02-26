@@ -15,8 +15,23 @@ Loosely inspired by [this](https://github.com/syseleven/designate-certmanager-we
 
 ### Helm
 
+Add the Helm repository:
+
 ```bash
-helm install designate-webhook deploy/designate-webhook -n cert-manager
+helm repo add designate-webhook https://rikotsev.github.io/cert-manager-webhook-designate
+helm repo update
+```
+
+Install the chart:
+
+```bash
+helm install designate-webhook designate-webhook/designate-webhook -n cert-manager
+```
+
+To install a specific version:
+
+```bash
+helm install designate-webhook designate-webhook/designate-webhook -n cert-manager --version 1.0.1
 ```
 
 ## Configuration
