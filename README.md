@@ -31,7 +31,7 @@ helm install designate-webhook designate-webhook/designate-webhook -n cert-manag
 To install a specific version:
 
 ```bash
-helm install designate-webhook designate-webhook/designate-webhook -n cert-manager --version 1.0.1
+helm install designate-webhook designate-webhook/designate-webhook -n cert-manager --version 1.0.0
 ```
 
 ## Configuration
